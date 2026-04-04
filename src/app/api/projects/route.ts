@@ -1,84 +1,101 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import prisma from "@/lib/prisma";
 
+// GET - fetch all projects for the organisation
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
-    if (!session) {
+    if (!session?.user) {
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
-    const organisationId = (session.user as any).organisationId;
+    const user = session.user as any;
+
     const projects = await prisma.project.findMany({
-      where: { organisationId },
-      include: {
-        budgets: true,
-        _count: { select: { rfqs: true, purchaseOrders: true, deliveries: true } }
-      },
-      orderBy: { updatedAt: "desc" }
+      where: { organisationId: user.organisationId },
+      orderBy: { createdAt: "desc" },
     });
 
     return NextResponse.json(projects);
   } catch (error) {
-    console.error("Error fetching projects:", error);
+    console.error("GET /api/projects error:", error);
     return NextResponse.json({ message: "Internal server error" }, { status: 500 });
   }
 }
 
+// POST - create a new project
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session) {
+    if (!session?.user) {
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
-    const organisationId = (session.user as any).organisationId;
+    const user = session.user as any;
+
     const body = await request.json();
-    const { name, code, description, city, location, address, startDate, endDate, estimatedValue, cidbGrade } = body;
+    const {
+      name,
+      code,
+      description,
+      sector,
+      status,
+      city,
+      province,
+      address,
+      clientName,
+      startDate,
+      endDate,
+      totalBudget,
+      divisionId,
+    } = body;
 
     if (!name || !code) {
-      return NextResponse.json({ message: "Name and code are required" }, { status: 400 });
+      return NextResponse.json(
+        { message: "Project name and code are required" },
+        { status: 400 }
+      );
     }
 
-    const existingProject = await prisma.project.findUnique({
-      where: { code }
+    // Check if code already exists in this org
+    const existing = await prisma.project.findFirst({
+      where: {
+        code,
+        organisationId: user.organisationId,
+      },
     });
 
-    if (existingProject) {
-      return NextResponse.json({ message: "Project code already exists" }, { status: 400 });
+    if (existing) {
+      return NextResponse.json(
+        { message: "Project code already exists" },
+        { status: 400 }
+      );
     }
 
     const project = await prisma.project.create({
       data: {
         name,
         code,
-        description,
-        city,
-        location,
-        address,
+        description: description || null,
+        sector: sector || "RESIDENTIAL",
+        status: status || "PLANNING",
+        city: city || null,
+        province: province || null,
+        address: address || null,
+        clientName: clientName || null,
         startDate: startDate ? new Date(startDate) : null,
         endDate: endDate ? new Date(endDate) : null,
-        estimatedValue: estimatedValue || 0,
-        cidbGrade,
-        organisationId,
-        status: "PLANNING",
-      }
-    });
-
-    await prisma.budget.create({
-      data: {
-        projectId: project.id,
-        totalBudget: estimatedValue || 0,
-        committed: 0,
-        actual: 0
-      }
+        totalBudget: totalBudget ? parseFloat(totalBudget) : 0,
+        organisationId: user.organisationId,
+        divisionId: divisionId || null,
+      },
     });
 
     return NextResponse.json(project, { status: 201 });
   } catch (error) {
-    console.error("Error creating project:", error);
+    console.error("POST /api/projects error:", error);
     return NextResponse.json({ message: "Internal server error" }, { status: 500 });
   }
 }
