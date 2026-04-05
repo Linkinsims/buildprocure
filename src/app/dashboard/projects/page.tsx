@@ -1,134 +1,132 @@
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import prisma from "@/lib/prisma";
-import { redirect } from "next/navigation";
-import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { 
-  FolderKanban, 
-  Plus, 
-  Search, 
-  MapPin, 
-  Calendar,
-  MoreVertical,
-  ArrowRight
-} from "lucide-react";
-import { formatCurrency, formatDate } from "@/lib/utils";
+"use client";
 
-async function getProjects(organisationId: string) {
-  return await prisma.project.findMany({
-    where: { organisationId },
-    include: {
-      budgets: true,
-      _count: {
-        select: {
-          rfqs: true,
-          purchaseOrders: true,
-          deliveries: true
-        }
-      }
-    },
-    orderBy: { updatedAt: "desc" }
-  });
+import { useEffect, useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { formatZAR } from "@/lib/utils";
+import { Plus, Loader2 } from "lucide-react";
+import NewProjectModal from "@/components/projects/NewProjectModal";
+
+interface Project {
+  id: string;
+  name: string;
+  code: string;
+  sector: string;
+  status: string;
+  city: string | null;
+  province: string | null;
+  clientName: string | null;
+  totalBudget: number;
+  description: string | null;
+  startDate: string | null;
+  endDate: string | null;
 }
 
-export default async function ProjectsPage() {
-  const session = await getServerSession(authOptions);
-  
-  if (!session) {
-    redirect("/auth/signin");
-  }
+export default function ProjectsPage() {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
 
-  const organisationId = (session.user as any).organisationId;
-  const projects = await getProjects(organisationId);
+  const fetchProjects = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/projects");
+      const data = await res.json();
+      setProjects(data);
+    } catch (err) {
+      console.error("Failed to fetch projects:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProjects();
+  }, []);
 
   return (
-    <div className="p-8">
-      <div className="flex items-center justify-between mb-8">
+    <div className="flex flex-col gap-6">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">Projects</h1>
-          <p className="text-slate-600">Manage all your construction projects</p>
+          <h1 className="text-3xl font-bold tracking-tight">Projects</h1>
+          <p className="text-muted-foreground">Manage your construction sites and developments.</p>
         </div>
-        <Link href="/dashboard/projects/new">
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            New Project
+        <Button onClick={() => setModalOpen(true)}>
+          <Plus className="mr-2 h-4 w-4" /> New Project
+        </Button>
+      </div>
+
+      {/* Loading state */}
+      {loading && (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!loading && projects.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-20 text-center border border-dashed border-border rounded-xl">
+          <p className="text-muted-foreground text-lg font-medium">No projects yet</p>
+          <p className="text-muted-foreground text-sm mt-1">Click "New Project" to create your first one.</p>
+          <Button className="mt-4" onClick={() => setModalOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" /> New Project
           </Button>
-        </Link>
-      </div>
-
-      <div className="mb-6 flex gap-4">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-          <Input placeholder="Search projects..." className="pl-10" />
         </div>
-      </div>
+      )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {projects.length === 0 ? (
-          <Card className="col-span-full">
-            <CardContent className="py-12 text-center">
-              <FolderKanban className="h-12 w-12 text-slate-300 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-slate-900 mb-2">No projects yet</h3>
-              <p className="text-slate-600 mb-4">Create your first project to get started</p>
-              <Link href="/dashboard/projects/new">
-                <Button>Create Project</Button>
-              </Link>
-            </CardContent>
-          </Card>
-        ) : (
-          projects.map((project) => {
-            const budget = project.budgets[0];
-            return (
-              <Link key={project.id} href={`/dashboard/projects/${project.id}`}>
-                <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
-                  <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <CardTitle className="text-lg">{project.name}</CardTitle>
-                        <p className="text-sm text-slate-500 mt-1">{project.code}</p>
-                      </div>
-                      <Badge variant={project.status === "ACTIVE" ? "success" : "secondary"}>
-                        {project.status}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2 text-sm text-slate-600">
-                        <MapPin className="h-4 w-4" />
-                        {project.city}, {project.location}
-                      </div>
-                      <div className="flex items-center gap-2 text-sm text-slate-600">
-                        <Calendar className="h-4 w-4" />
-                        {project.startDate ? formatDate(project.startDate) : "Not set"} - {project.endDate ? formatDate(project.endDate) : "Not set"}
-                      </div>
-                      <div className="pt-2 border-t">
-                        <div className="flex items-center justify-between text-sm mb-2">
-                          <span className="text-slate-600">Budget</span>
-                          <span className="font-medium">{formatCurrency(budget?.totalBudget || project.estimatedValue)}</span>
-                        </div>
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-slate-600">Spent</span>
-                          <span className="font-medium text-blue-600">{formatCurrency(budget?.actual || 0)}</span>
-                        </div>
-                      </div>
-                      <div className="pt-2 flex items-center justify-between text-xs text-slate-500">
-                        <span>{project._count.rfqs} RFQs</span>
-                        <span>{project._count.purchaseOrders} POs</span>
-                        <span>{project._count.deliveries} Deliveries</span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
-            );
-          })
-        )}
-      </div>
+      {/* Projects list */}
+      {!loading && projects.length > 0 && (
+        <div className="grid grid-cols-1 gap-4">
+          {projects.map((project) => (
+            <Card key={project.id}>
+              <CardHeader className="flex flex-row items-start justify-between pb-2 border-b mb-4">
+                <div>
+                  <CardTitle className="text-xl text-primary">{project.name}</CardTitle>
+                  <div className="flex gap-2 text-sm text-muted-foreground mt-1 flex-wrap">
+                    <span>{project.code}</span>
+                    {project.city && <><span>•</span><span>{project.city}{project.province ? `, ${project.province}` : ""}</span></>}
+                    {project.clientName && <><span>•</span><span>Client: {project.clientName}</span></>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className={`text-xs px-2 py-1 rounded-full text-white inline-flex font-medium ${
+                    project.status === "ACTIVE" ? "bg-emerald-500" :
+                    project.status === "PLANNING" ? "bg-blue-500" :
+                    project.status === "ON_HOLD" ? "bg-amber-500" :
+                    project.status === "COMPLETED" ? "bg-gray-500" : "bg-red-500"
+                  }`}>
+                    {project.status.replace("_", " ")}
+                  </div>
+                  <Button variant="outline" size="sm">Manage</Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Sector</p>
+                    <p className="font-semibold">{project.sector.replace(/_/g, " ")}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Total Budget</p>
+                    <p className="font-semibold text-lg">{formatZAR(project.totalBudget)}</p>
+                  </div>
+                  <div className="md:col-span-2">
+                    <p className="text-sm font-medium text-muted-foreground">Description</p>
+                    <p className="text-sm text-muted-foreground">{project.description || "—"}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Modal */}
+      <NewProjectModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onSuccess={fetchProjects}
+      />
     </div>
   );
 }
